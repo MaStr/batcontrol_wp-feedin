@@ -1,0 +1,22 @@
+mqtt:
+  host: mqtt-server
+  port: 1883
+  user: <user>              # Ergänzte User-Anmeldung
+  password: <password>      # Ergänztes Passwort
+  topics:
+    z1_zaehler: huehnerhaus/powermeter/z1/actual/mean
+    current_em_mode: huehnerhaus/batcontrol/inverters/0/em_mode
+    current_em_power: huehnerhaus/batcontrol/inverters/0/em_power
+    set_em_power: huehnerhaus/batcontrol/inverters/0/em_power/set
+    set_em_mode: huehnerhaus/batcontrol/inverters/0/em_mode/set
+    batcontrol_mode: huehnerhaus/batcontrol/mode
+    batcontrol_status: huehnerhaus/batcontrol/status
+    soc: huehnerhaus/evcc/site/battery/1/soc
+    grid_power: huehnerhaus/evcc/site/grid/power
+    ev_connected: huehnerhaus/evcc/loadpoints/1/connected
+    pv_power: huehnerhaus/evcc/site/pvPower
+    home_power: huehnerhaus/evcc/site/homePower
+    batcontrol_max_capacity: huehnerhaus/batcontrol/max_energy_capacity
+    batcontrol_stored_energy: huehnerhaus/batcontrol/stored_energy_capacity
+    batcontrol_fcst_solar: huehnerhaus/batcontrol/FCST/production
+    batcontrol_fcst_net_consumption: huehnerhaus/batcontrol/FCST/net_consumption
