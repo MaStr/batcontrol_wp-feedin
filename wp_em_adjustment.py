@@ -16,21 +16,25 @@ class EnergyManagementConstants:
     # Mindest-SOC zum Starten der Regelung
     soc_threshold: int = 50
     # Oberer SOC-Schwellenwert, unter diesem Wert wird auf PV-Überschuss geregelt,
-    high_soc_threshold: int = 90
     #    darüber wird ungeregelt der Leistungsbedarf genutzt.
+    high_soc_threshold: int = 90
     # Schwellenwert für Netzbezug um die Regelung zu deaktivieren
-    grid_power_threshold: int = 100
     #    z.B. Herd wird angemacht.
-    power_tolerance_percent: float = 0.15        # Toleranz bei Power-Änderungen
+    grid_power_threshold: int = 100
+    # Toleranz bei Power-Änderungen
     #    Wie fein soll der EM_Power nachgeregelt werden.
+    power_tolerance_percent: float = 0.15
     # Factor für die verwendete Speicherkapazität
-    capacity_utilization: float = 0.95
     #    Für die PV-Gesamt-Überschussberechnung wird die Akku Kapazität um diesen Wert verrringert.
-    pv_power_threshold: int = 10                 # Schwellenwert für pv_power
+    capacity_utilization: float = 0.95
+    # Schwellenwert für anliegende PV-Leistung
     #    Fällt die PV Leistung unter diesem Wert, wird die Regelung abgeschaltet.
+    pv_power_threshold: int = 10
     # Maximale zulässige positive Differenz (delta_power)
-    delta_power_difference_max: int = 100
     #    Dieser Wert würde bedeuten, dass wir 100W mehr beziehen, statt einzuseisen.
+    #    Wird dieser Wert überschritten, wird die Regelung abgeschaltet.
+    delta_power_difference_max: int = 100
+
 
 
 def convert_to_hourly_values(data, ts):
