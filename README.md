@@ -37,7 +37,8 @@ Die Steuerung basiert auf verschiedenen Datenströmen, die alle 30 Sekunden aktu
   - Solarertrag
   - Verbrauch minus Solarertrag
 
-Diese Daten werden über die batcontrol MQTT-API bezogen. Insbesondere werden die Werte über das Topic `z1_zaehler` gelesen, um den aktuellen Verbrauch auf Zaehler 2 zu ermitteln.
+Diese Daten werden über die batcontrol MQTT-API bezogen. Insbesondere werden die Werte über das Topic `z1_zaehler` gelesen, um den aktuellen Verbrauch auf Zaehler 1 zu ermitteln.
+Die Differenz zwischen `Grid_Power`und `z1_zaehler` ergbit den Verbrauch der WP.
 
 ## Regelungslogik
 
@@ -54,5 +55,5 @@ Die Regelung nutzt die Funktion des Eigenverbrauchsmanagements (EM) von Fronius 
 
 ## Konfiguration
 
-Die MQTT-Konfiguration wird in der Datei [config/batcontrol_config.yaml](config/batcontrol_config.yaml) bzw. der Dummy-Konfiguration in [config/batcontrol_config_dummy.yaml](config/batcontrol_config_dummy.yaml) festgelegt. Dort sind u.a. die MQTT-Serverdaten und die entsprechenden Topics hinterlegt.
+Die MQTT-Konfiguration wird in der Datei [config/config.yaml](config/config.yaml) bzw. der Dummy-Konfiguration in [config/config_dummy.yaml](config/config_dummy.yaml) festgelegt. Dort sind u.a. die MQTT-Serverdaten und die entsprechenden Topics hinterlegt.
 
