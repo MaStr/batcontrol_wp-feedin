@@ -6,28 +6,36 @@ import paho.mqtt.client as mqtt
 import numpy as np
 import yaml  # PyYAML muss installiert sein
 
+
 @dataclass
 class EnergyManagementConstants:
-    sleep_interval_no_solar: int = 10            # Warteintervall, wenn kein Solarüberschuss erwartet wird
-    sleep_interval_car: int = 30                 # Warteintervall, wenn ein EV verbunden ist
-    soc_threshold: int = 50                      # Mindest-SOC zum Starten der Regelung
-    high_soc_threshold: int = 90                 # Oberer SOC-Schwellenwert, unter diesem Wert wird auf PV-Überschuss geregelt,
-                                                 #    darüber wird ungeregelt der Leistungsbedarf genutzt.
-    grid_power_threshold: int = 100              # Schwellenwert für Netzbezug um die Regelung zu deaktivieren
-                                                 #    z.B. Herd wird angemacht.
+    # Warteintervall, wenn kein Solarüberschuss erwartet wird
+    sleep_interval_no_solar: int = 10
+    # Warteintervall, wenn ein EV verbunden ist
+    sleep_interval_car: int = 30
+    # Mindest-SOC zum Starten der Regelung
+    soc_threshold: int = 50
+    # Oberer SOC-Schwellenwert, unter diesem Wert wird auf PV-Überschuss geregelt,
+    high_soc_threshold: int = 90
+    #    darüber wird ungeregelt der Leistungsbedarf genutzt.
+    # Schwellenwert für Netzbezug um die Regelung zu deaktivieren
+    grid_power_threshold: int = 100
+    #    z.B. Herd wird angemacht.
     power_tolerance_percent: float = 0.15        # Toleranz bei Power-Änderungen
-                                                 #    Wie fein soll der EM_Power nachgeregelt werden.
-    capacity_utilization: float = 0.95           # Factor für die verwendete Speicherkapazität
-                                                 #    Für die PV-Gesamt-Überschussberechnung wird die Akku Kapazität um diesen Wert verrringert.
+    #    Wie fein soll der EM_Power nachgeregelt werden.
+    # Factor für die verwendete Speicherkapazität
+    capacity_utilization: float = 0.95
+    #    Für die PV-Gesamt-Überschussberechnung wird die Akku Kapazität um diesen Wert verrringert.
     pv_power_threshold: int = 10                 # Schwellenwert für pv_power
-                                                 #    Fällt die PV Leistung unter diesem Wert, wird die Regelung abgeschaltet.
-    delta_power_difference_max: int = 100        # Maximale zulässige positive Differenz (delta_power)
-                                                 #    Dieser Wert würde bedeuten, dass wir 100W mehr beziehen, statt einzuseisen.
+    #    Fällt die PV Leistung unter diesem Wert, wird die Regelung abgeschaltet.
+    # Maximale zulässige positive Differenz (delta_power)
+    delta_power_difference_max: int = 100
+    #    Dieser Wert würde bedeuten, dass wir 100W mehr beziehen, statt einzuseisen.
 
-def convert_to_hourly_values(data):
+
+def convert_to_hourly_values(data, ts):
     # Umsetzen in ein Array mit hourly values und dann in ein numpy array
     hourly_values = np.zeros(len(data['data']))
-    ts = time.time()
     ts_full_hour = ts - (ts % 3600)
 
     for i, entry in enumerate(data['data']):
@@ -45,6 +53,24 @@ def convert_to_hourly_values(data):
 
 class WP_EM_Adjustment:
     def __init__(self, config: dict):
+        # Definiere hier, welche Typkonvertierung für welchen Topic-Schlüssel genutzt werden soll
+        self.topic_conversions = {
+            "z1_zaehler": float,
+            "current_em_mode": lambda x: x,
+            "current_em_power": float,
+            "batcontrol_mode": lambda x: x,
+            "batcontrol_status": lambda x: x,
+            "soc": float,
+            "grid_power": float,
+            "ev_connected": lambda x: x,
+            "pv_power": float,
+            "home_power": float,
+            "batcontrol_max_capacity": float,
+            "batcontrol_stored_energy": float,
+            # Diese Werte sind JSON-Strings, die später in Funktionen konvertiert werden
+            "batcontrol_fcst_solar": lambda x: x,
+            "batcontrol_fcst_net_consumption": lambda x: x,
+        }
         self.config = config
         # Dry run Flag: wenn True, werden Publish-Aufrufe nur geloggt
         self.dry_run = self.config.get('dry_run', False)
@@ -84,7 +110,8 @@ class WP_EM_Adjustment:
         mqtt_host = self.config['mqtt'].get('host')
         mqtt_port = self.config['mqtt'].get('port')
         if not mqtt_host or not mqtt_port:
-            raise ValueError("MQTT host and port must be specified in the configuration")
+            raise ValueError(
+                "MQTT host and port must be specified in the configuration")
         self.client.connect(mqtt_host, mqtt_port, 60)
         self.client.loop_start()
 
@@ -108,8 +135,14 @@ class WP_EM_Adjustment:
         # Aktualisiere das passende Attribut
         for key, topic in self.topics.items():
             if not key.startswith("set_") and topic == msg.topic:
-                setattr(self, key, decoded)
-                logging.debug(f"Updated attribute '{key}' with value: {decoded}")
+                convert_func = self.topic_conversions.get(key, lambda x: x)
+                try:
+                    converted = convert_func(decoded)
+                except Exception as e:
+                    logging.error(f"Fehler bei der Typkonvertierung für {key} mit Wert '{decoded}': {e}")
+                    converted = decoded  # Fallback: unverändert
+                setattr(self, key, converted)
+                logging.debug(f"Updated attribute '{key}' with value: {converted}")
                 if key == "grid_power":
                     self.evaluate()
 
@@ -117,7 +150,8 @@ class WP_EM_Adjustment:
         if self.current_em_mode == mode:
             return
         if self.dry_run:
-            logging.info(f"Dry run: set_em_mode would publish {mode} to {self.topics.get('set_em_mode')}")
+            logging.info(
+                f"Dry run: set_em_mode would publish {mode} to {self.topics.get('set_em_mode')}")
         else:
             self.client.publish(self.topics['set_em_mode'], mode)
 
@@ -129,24 +163,27 @@ class WP_EM_Adjustment:
             power (int): The power value to set.
         """
         power = int(round(power, 0))
-        current_power = int(round(float(self.current_em_power), 0))
+        current_power = int(round(self.current_em_power, 0))
         if abs(power - current_power) <= abs(current_power * self.em_config.power_tolerance_percent):
-            logging.info("Power is already set to ~ %s ; %.3f", power, float(self.current_em_power))
+            logging.info("Power is already set to ~ %s ; %.3f",
+                         power, float(self.current_em_power))
             return
         logging.info("Set EM Power to %s", power)
         if self.dry_run:
-            logging.info(f"Dry run: set_em_power would publish {power} to {self.topics.get('set_em_power')}")
+            logging.info(
+                f"Dry run: set_em_power would publish {power} to {self.topics.get('set_em_power')}")
         else:
             self.client.publish(self.topics['set_em_power'], power)
         self.last_delta_power = power
 
     def is_solar_ueberschuss_expected(self):
-        fcst_solar = json.loads(self.batcontrol_fcst_solar)
-        fcst_net_consumption = json.loads(self.batcontrol_fcst_net_consumption)
-        net_consumption = convert_to_hourly_values(fcst_net_consumption)
-        production = convert_to_hourly_values(fcst_solar)
         ts = time.time()
         ts_factor = 1 - (ts % 3600 / 3600)
+
+        fcst_solar = json.loads(self.batcontrol_fcst_solar)
+        fcst_net_consumption = json.loads(self.batcontrol_fcst_net_consumption)
+        net_consumption = convert_to_hourly_values(fcst_net_consumption, ts)
+        production = convert_to_hourly_values(fcst_solar, ts)
 
         logging.debug("Net Consumption: %s", net_consumption)
         logging.debug("Production: %s", production)
@@ -160,7 +197,7 @@ class WP_EM_Adjustment:
 
         production_start_time = 0
         production_end_time = None
-        for i,entry  in enumerate(production):
+        for i, entry in enumerate(production):
             if production[i] > 0:
                 production_start_time = i
                 break
@@ -182,33 +219,54 @@ class WP_EM_Adjustment:
         sum_net_consumption = sum_net_consumption * -1
         if sum_net_consumption < 0:
             sum_net_consumption = 0
-        logging.debug("Sum Net Consumption: %s", sum_net_consumption)
+        logging.debug("Sum Net Production: %s", sum_net_consumption)
 
-        free_capacity = (float(self.batcontrol_max_capacity) * self.em_config.capacity_utilization) - float(self.batcontrol_stored_energy)
-        logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f", self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption)
+        free_capacity = (self.batcontrol_max_capacity *
+                         self.em_config.capacity_utilization) - self.batcontrol_stored_energy
+        logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f",
+                     self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption)
         if free_capacity < (sum_net_consumption * -1):
             return True
         return False
 
+    def __is_em_mode_valid(self):
+        return self.current_em_mode in ("0", "1")
+
+    def __disable_em(self):
+        self.set_em_mode(0)
+        self.set_em_power(0)
+
+    def __em_is_active(self):
+        return self.current_em_mode == "1"
+
+    def __em_is_inactive(self):
+        return self.current_em_mode == "0"
+
+    def __is_ev_connected(self):
+        return self.ev_connected == "true"
+
+    def __is_discharge_blocked_by_batcontrol(self):
+        return self.batcontrol_mode == "0"
+
     def evaluate(self):
-        if self.current_em_mode not in ("0", "1"):
+        if self.__is_em_mode_valid() is False:
             return
 
         if self.batcontrol_status == "offline":
             logging.info("Batcontrol offline")
             return
 
-        if self.current_em_mode in ("0", "1"):
-            if self.sleep_interval > 0:
-                self.sleep_interval -= 1
-                return
-            if not self.is_solar_ueberschuss_expected():
-                logging.info("Kein Solarüberschuss erwartet, Deaktiviere Steuerung")
-                self.sleep_interval = self.em_config.sleep_interval_no_solar
-                if self.current_em_mode == "1":
-                    self.set_em_mode(0)
-                    self.set_em_power(0)
-                return
+        if self.sleep_interval > 0:
+            self.sleep_interval -= 1
+            return
+
+        if not self.is_solar_ueberschuss_expected():
+            logging.info(
+                "Kein Solarüberschuss erwartet, Deaktiviere Steuerung")
+            self.sleep_interval = self.em_config.sleep_interval_no_solar
+            if self.__em_is_active():
+                self.__disable_em()
+            return
 
         try:
             float(self.z1_zaehler)
@@ -216,27 +274,24 @@ class WP_EM_Adjustment:
             logging.error("z1_zaehler is not set. Skip evaluation")
             return
 
-        if self.batcontrol_mode == "0":
+        if self.__is_discharge_blocked_by_batcontrol():
             logging.info("Batcontrol Mode 0, disable WP EM Adjustment")
-            if self.current_em_mode == "1":
-                self.set_em_mode(0)
-                self.set_em_power(0)
+            if self.__em_is_active():
+                self.__disable_em()
             return
 
-        if self.current_em_mode == "1":
-            if self.ev_connected == "true":
+        if self.__em_is_active():
+            if self.__is_ev_connected():
                 logging.info("EV just Connected, disable EM")
-                self.set_em_mode(0)
-                self.set_em_power(0)
+                self.__disable_em()
                 return
 
-            if float(self.grid_power) > self.em_config.grid_power_threshold:
+            if self.grid_power > self.em_config.grid_power_threshold:
                 self.set_em_power(0)
                 return
 
             if self.soc <= self.em_config.soc_threshold:
-                self.set_em_mode(0)
-                self.set_em_power(0)
+                self.__disable_em()
                 return
 
             delta_power = self.grid_power - self.z1_zaehler
@@ -248,25 +303,34 @@ class WP_EM_Adjustment:
 
             if self.pv_power > self.em_config.pv_power_threshold:
                 if self.soc < self.em_config.high_soc_threshold:
-                    delta_power = max(delta_power, -1 * (self.pv_power - self.home_power))
+                    delta_power = max(delta_power, -1 *
+                                      (self.pv_power - self.home_power))
+            else:
+                logging.info("PV Power %s unter Schwellenwert %s",
+                             self.pv_power, self.em_config.pv_power_threshold)
+                self.set_em_power(0)
+                return
 
-            self.z1_zaehler = 'NaN'
+            self.z1_zaehler = 'NaN'  # z1_zaehler nur einmal verwenden
+                                     # Update ist unverlässlich
             self.set_em_power(delta_power)
 
-        if self.current_em_mode == "0":
-            if self.ev_connected == "true":
+        if self.__em_is_inactive():
+            if self.__is_ev_connected():
                 logging.info("EV Connected, do nothing")
                 self.sleep_interval = self.em_config.sleep_interval_car
                 return
 
-            if float(self.soc) > self.em_config.soc_threshold:
+            if self.soc > self.em_config.soc_threshold:
                 self.set_em_mode(1)
             else:
-                logging.info("Warten bis SOC > %s aktuell: %s", self.em_config.soc_threshold, self.soc)
+                logging.info("Warten bis SOC > %s aktuell: %s",
+                             self.em_config.soc_threshold, self.soc)
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(levelname)s - %(message)s')
     # Lese die Konfiguration aus config.yaml ein
     with open("config.yaml", "r") as config_file:
         config = yaml.safe_load(config_file)
