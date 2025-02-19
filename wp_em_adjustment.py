@@ -150,16 +150,16 @@ class WP_EM_Adjustment:
                 if key == "grid_power":
                     self.evaluate()
 
-    def set_em_mode(self, mode):
+    def update_em_mode(self, mode):
         if self.current_em_mode == mode:
             return
         if self.dry_run:
             logging.info(
-                f"Dry run: set_em_mode would publish {mode} to {self.topics.get('set_em_mode')}")
+                f"Dry run: update_em_mode would publish {mode} to {self.topics.get('set_em_mode')}")
         else:
             self.client.publish(self.topics['set_em_mode'], mode)
 
-    def set_em_power(self, power):
+    def update_em_power(self, power):
         """
         Set the energy management power to the specified value.
 
@@ -175,7 +175,7 @@ class WP_EM_Adjustment:
         logging.info("Set EM Power to %s", power)
         if self.dry_run:
             logging.info(
-                f"Dry run: set_em_power would publish {power} to {self.topics.get('set_em_power')}")
+                f"Dry run: update_em_power would publish {power} to {self.topics.get('set_em_power')}")
         else:
             self.client.publish(self.topics['set_em_power'], power)
         self.last_delta_power = power
@@ -237,8 +237,8 @@ class WP_EM_Adjustment:
         return self.current_em_mode in ("0", "1")
 
     def __disable_em(self):
-        self.set_em_mode(0)
-        self.set_em_power(0)
+        self.update_em_mode(0)
+        self.update_em_power(0)
 
     def __em_is_active(self):
         return self.current_em_mode == "1"
@@ -291,7 +291,7 @@ class WP_EM_Adjustment:
                 return
 
             if self.grid_power > self.em_config.grid_power_threshold:
-                self.set_em_power(0)
+                self.update_em_power(0)
                 return
 
             if self.soc <= self.em_config.soc_threshold:
@@ -302,7 +302,7 @@ class WP_EM_Adjustment:
             logging.info(f"Delta Power: {delta_power}")
 
             if delta_power > self.em_config.delta_power_difference_max:
-                self.set_em_power(0)
+                self.update_em_power(0)
                 return
 
             if self.pv_power > self.em_config.pv_power_threshold:
@@ -312,12 +312,12 @@ class WP_EM_Adjustment:
             else:
                 logging.info("PV Power %s unter Schwellenwert %s",
                              self.pv_power, self.em_config.pv_power_threshold)
-                self.set_em_power(0)
+                self.update_em_power(0)
                 return
 
             self.z1_zaehler = 'NaN'  # z1_zaehler nur einmal verwenden
                                      # Update ist unverlässlich
-            self.set_em_power(delta_power)
+            self.update_em_power(delta_power)
 
         if self.__em_is_inactive():
             if self.__is_ev_connected():
@@ -326,7 +326,7 @@ class WP_EM_Adjustment:
                 return
 
             if self.soc > self.em_config.soc_threshold:
-                self.set_em_mode(1)
+                self.update_em_mode(1)
             else:
                 logging.info("Warten bis SOC > %s aktuell: %s",
                              self.em_config.soc_threshold, self.soc)
