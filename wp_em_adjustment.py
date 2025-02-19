@@ -16,11 +16,11 @@ class EnergyManagementConstants:
     grid_power_threshold: int = 100              # Schwellenwert für Netzbezug um die Regelung zu deaktivieren
                                                  #    z.B. Herd wird angemacht.
     power_tolerance_percent: float = 0.15        # Toleranz bei Power-Änderungen
-                                                 #    Wie fein soll der EM_Power Nachgeregelt werden.
+                                                 #    Wie fein soll der EM_Power nachgeregelt werden.
     capacity_utilization: float = 0.95           # Factor für die verwendete Speicherkapazität
                                                  #    Für die PV-Gesamt-Überschussberechnung wird die Akku Kapazität um diesen Wert verrringert.
     pv_power_threshold: int = 10                 # Schwellenwert für pv_power
-                                                 #    Fällt die PV Leistung unter diesem Wert, wird die Regelung abgeschaltet
+                                                 #    Fällt die PV Leistung unter diesem Wert, wird die Regelung abgeschaltet.
     delta_power_difference_max: int = 100        # Maximale zulässige positive Differenz (delta_power)
                                                  #    Dieser Wert würde bedeuten, dass wir 100W mehr beziehen, statt einzuseisen.
 
@@ -46,6 +46,8 @@ def convert_to_hourly_values(data):
 class WP_EM_Adjustment:
     def __init__(self, config: dict):
         self.config = config
+        # Dry run Flag: wenn True, werden Publish-Aufrufe nur geloggt
+        self.dry_run = self.config.get('dry_run', False)
         self.client = mqtt.Client()
         self.last_delta_power = 0
         self.sleep_interval = 0
@@ -114,7 +116,10 @@ class WP_EM_Adjustment:
     def set_em_mode(self, mode):
         if self.current_em_mode == mode:
             return
-        self.client.publish(self.topics['set_em_mode'], mode)
+        if self.dry_run:
+            logging.info(f"Dry run: set_em_mode would publish {mode} to {self.topics.get('set_em_mode')}")
+        else:
+            self.client.publish(self.topics['set_em_mode'], mode)
 
     def set_em_power(self, power):
         """
@@ -129,7 +134,10 @@ class WP_EM_Adjustment:
             logging.info("Power is already set to ~ %s ; %.3f", power, float(self.current_em_power))
             return
         logging.info("Set EM Power to %s", power)
-        self.client.publish(self.topics['set_em_power'], power)
+        if self.dry_run:
+            logging.info(f"Dry run: set_em_power would publish {power} to {self.topics.get('set_em_power')}")
+        else:
+            self.client.publish(self.topics['set_em_power'], power)
         self.last_delta_power = power
 
     def is_solar_ueberschuss_expected(self):
@@ -152,19 +160,19 @@ class WP_EM_Adjustment:
 
         production_start_time = 0
         production_end_time = None
-        for i in range(len(production)):
+        for i,entry  in enumerate(production):
             if production[i] > 0:
                 production_start_time = i
                 break
 
-        if production_start_time is not None:
-            for i in range(production_start_time, len(production)):
-                if production[i] == 0:
-                    production_end_time = i
-                    break
-            if production_end_time is None:
-                production_end_time = len(production)
+        for i in range(production_start_time, len(production)):
+            if production[i] == 0:
+                production_end_time = i
+                break
+        if production_end_time is None:
+            production_end_time = len(production)
 
+        production_end_time = min(production_end_time, len(net_consumption))
         logging.debug("Production Start Time: %s", production_start_time)
         logging.debug("Production End Time: %s", production_end_time)
 
