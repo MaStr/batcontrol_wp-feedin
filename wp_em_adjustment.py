@@ -218,7 +218,7 @@ class WP_EM_Adjustment:
         logging.debug("Production End Time: %s", production_end_time)
 
         sum_net_consumption = 0
-        for i in range(production_start_time, production_end_time+1):
+        for i in range(production_start_time, production_end_time):
             sum_net_consumption += net_consumption[i]
         sum_net_consumption = sum_net_consumption * -1
         if sum_net_consumption < 0:
