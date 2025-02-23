@@ -97,6 +97,7 @@ class WP_EM_Adjustment:
         self.batcontrol_stored_energy = 0
         self.batcontrol_fcst_solar = "[]"
         self.batcontrol_fcst_net_consumption = "[]"
+        self.received_fcst = False
 
         # Lade die EnergyManagement-Konstanten aus der Config (falls vorhanden)
         em_consts = self.config.get('em_constants', {})
@@ -149,6 +150,8 @@ class WP_EM_Adjustment:
                 logging.debug(f"Updated attribute '{key}' with value: {converted}")
                 if key == "grid_power":
                     self.evaluate()
+                if key.startswith("batcontrol_fcst_"):
+                    self.received_fcst = True
 
     def update_em_mode(self, mode):
         if self.current_em_mode == mode:
@@ -256,6 +259,10 @@ class WP_EM_Adjustment:
         if self.__is_em_mode_valid() is False:
             return
 
+        if self.received_fcst is False:
+            logging.info("No forecast data received yet")
+            return
+
         if self.batcontrol_status == "offline":
             logging.info("Batcontrol offline")
             return
@@ -333,7 +340,7 @@ class WP_EM_Adjustment:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO,
+    logging.basicConfig(level=logging.DEBUG,
                         format='%(asctime)s - %(levelname)s - %(message)s')
     # Lese die Konfiguration aus config.yaml ein
     with open("config.yaml", "r") as config_file:
