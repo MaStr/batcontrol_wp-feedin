@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass
 import paho.mqtt.client as mqtt
 import numpy as np
+import argparse
 import yaml  # PyYAML muss installiert sein
 
 
@@ -340,8 +341,16 @@ class WP_EM_Adjustment:
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG,
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d', '--debug', action='store_true', help='Enable debug logging')
+    args = parser.parse_args()
+
+    # Set up logging based on debug flag
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(level=log_level,
                         format='%(asctime)s - %(levelname)s - %(message)s')
+
     # Lese die Konfiguration aus config.yaml ein
     with open("config.yaml", "r") as config_file:
         config = yaml.safe_load(config_file)
