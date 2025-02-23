@@ -222,6 +222,12 @@ class WP_EM_Adjustment:
         logging.debug("Production End Time: %s", production_end_time)
 
         sum_net_consumption = 0
+        # Simple Summe.
+        # Alternativ könnte man den Batterieverbrauch auch mit einbeziehen wenn
+        # die sum_net_consumption < 0 ist.
+        # Da batcontrol aber die Batterie eventuell sperrt, ist das "vorberechnen"
+        # wenig sinnvoll.
+        #
         for i in range(production_start_time, production_end_time):
             sum_net_consumption += net_consumption[i]
         sum_net_consumption = sum_net_consumption * -1
