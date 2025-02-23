@@ -237,8 +237,8 @@ class WP_EM_Adjustment:
 
         free_capacity = (self.batcontrol_max_capacity *
                          self.em_config.capacity_utilization) - self.batcontrol_stored_energy
-        logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f",
-                     self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption)
+        logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
+                     self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, free_capacity - sum_net_consumption)
         if free_capacity < (sum_net_consumption * -1):
             return True
         return False
