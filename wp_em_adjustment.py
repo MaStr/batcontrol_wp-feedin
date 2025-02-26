@@ -215,7 +215,8 @@ class WP_EM_Adjustment:
 
         for i in range(production_start_time, len(production)):
             if production[i] == 0:
-                production_end_time = i
+                # Produktion ist in der vorherigen Stunde vorbei
+                production_end_time = i - 1
                 break
         if production_end_time is None:
             production_end_time = len(production)
