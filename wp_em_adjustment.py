@@ -285,13 +285,14 @@ class WP_EM_Adjustment:
             self.sleep_interval -= 1
             return
 
-        if not ( self.is_solar_ueberschuss_expected() or self.is_enough_stored()):
-            logging.info(
-                "Kein Solarüberschuss erwartet, Deaktiviere Steuerung")
-            self.sleep_interval = self.em_config.sleep_interval_no_solar
-            if self.__em_is_active():
-                self.__disable_em()
-            return
+        if not self.is_enough_stored():
+            if not self.is_solar_ueberschuss_expected():
+                logging.info(
+                    "Kein Solarüberschuss erwartet, Deaktiviere Steuerung")
+                self.sleep_interval = self.em_config.sleep_interval_no_solar
+                if self.__em_is_active():
+                    self.__disable_em()
+                return
 
         if self.z1_refreshed is False:
             logging.error("z1_zaehler is not set. Skip evaluation")
