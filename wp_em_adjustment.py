@@ -99,6 +99,7 @@ class WP_EM_Adjustment:
         self.batcontrol_fcst_solar = "[]"
         self.batcontrol_fcst_net_consumption = "[]"
         self.received_fcst = False
+        self.z1_refreshed = False
 
         # Lade die EnergyManagement-Konstanten aus der Config (falls vorhanden)
         em_consts = self.config.get('em_constants', {})
@@ -149,6 +150,8 @@ class WP_EM_Adjustment:
                     converted = decoded  # Fallback: unverändert
                 setattr(self, key, converted)
                 logging.debug(f"Updated attribute '{key}' with value: {converted}")
+                if key == "z1_zaehler":
+                    self.z1_refreshed = True
                 if key == "grid_power":
                     self.evaluate()
                 if key.startswith("batcontrol_fcst_"):
@@ -243,6 +246,9 @@ class WP_EM_Adjustment:
             return True
         return False
 
+    def is_enough_stored(self):
+        return ( self.soc > (self.em_config.capacity_utilization * 100 ))
+
     def __is_em_mode_valid(self):
         return self.current_em_mode in ("0", "1")
 
@@ -278,7 +284,7 @@ class WP_EM_Adjustment:
             self.sleep_interval -= 1
             return
 
-        if not self.is_solar_ueberschuss_expected():
+        if not ( self.is_solar_ueberschuss_expected() or self.is_enough_stored()):
             logging.info(
                 "Kein Solarüberschuss erwartet, Deaktiviere Steuerung")
             self.sleep_interval = self.em_config.sleep_interval_no_solar
@@ -286,9 +292,7 @@ class WP_EM_Adjustment:
                 self.__disable_em()
             return
 
-        try:
-            float(self.z1_zaehler)
-        except (ValueError, TypeError):
+        if self.z1_refreshed is False:
             logging.error("z1_zaehler is not set. Skip evaluation")
             return
 
@@ -329,8 +333,9 @@ class WP_EM_Adjustment:
                 self.update_em_power(0)
                 return
 
-            self.z1_zaehler = 'NaN'  # z1_zaehler nur einmal verwenden
-                                     # Update ist unverlässlich
+            # z1_zaehler nur einmal verwenden
+            # Update ist unverlässlich
+            self.z1_refreshed = False
             self.update_em_power(delta_power)
 
         if self.__em_is_inactive():
