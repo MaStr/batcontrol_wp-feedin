@@ -148,6 +148,10 @@ class WP_EM_Adjustment:
                 except Exception as e:
                     logging.error(f"Fehler bei der Typkonvertierung für {key} mit Wert '{decoded}': {e}")
                     converted = decoded  # Fallback: unverändert
+                if key == "batcontrol_status":
+                    if self.batcontrol_status == "offline":
+                        if converted == "online":
+                            logging.info("Batcontrol online")
                 setattr(self, key, converted)
                 logging.debug(f"Updated attribute '{key}' with value: {converted}")
                 if key == "z1_zaehler":
