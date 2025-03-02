@@ -241,13 +241,15 @@ class WP_EM_Adjustment:
         sum_net_consumption = sum_net_consumption * -1
         if sum_net_consumption < 0:
             sum_net_consumption = 0
+
         logging.debug("Sum Net Production: %s", sum_net_consumption)
 
         free_capacity = (self.batcontrol_max_capacity *
                          self.em_config.capacity_utilization) - self.batcontrol_stored_energy
+        difference = free_capacity -  sum_net_consumption
         logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
-                     self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, free_capacity - sum_net_consumption)
-        if free_capacity < (sum_net_consumption * -1):
+                     self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, difference)
+        if difference < 0:
             return True
         return False
 
