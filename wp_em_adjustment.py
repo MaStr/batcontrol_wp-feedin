@@ -35,6 +35,8 @@ class EnergyManagementConstants:
     #    Dieser Wert würde bedeuten, dass wir 100W mehr beziehen, statt einzuseisen.
     #    Wird dieser Wert überschritten, wird die Regelung abgeschaltet.
     delta_power_difference_max: int = 100
+    # Maximale Leistung zum Einspeisen:
+    power_feed_in_max: int = 3500
 
 
 
@@ -340,6 +342,8 @@ class WP_EM_Adjustment:
                              self.pv_power, self.em_config.pv_power_threshold)
                 self.update_em_power(0)
                 return
+
+            delta_power = min(delta_power, self.em_config.power_feed_in_max)
 
             # z1_zaehler nur einmal verwenden
             # Update ist unverlässlich
