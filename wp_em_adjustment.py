@@ -286,8 +286,9 @@ class WP_EM_Adjustment:
     def __em_is_inactive(self):
         return self.current_em_mode == "0"
 
-    def __is_ev_connected(self):
-        return self.ev_connected == "true"
+    def __is_ev_likes_to_charge(self):
+        # off, now, minpv, pv
+        return ( self.ev_connected == "true" and self.ev_charge_mode in ("now", "minpv", "pv"))
 
     def __is_discharge_blocked_by_batcontrol(self):
         return self.batcontrol_mode == "0"
@@ -340,7 +341,7 @@ class WP_EM_Adjustment:
             return
 
         if self.__em_is_active():
-            if self.__is_ev_connected():
+            if self.__is_ev_likes_to_charge():
                 logging.info("EV just Connected, disable EM")
                 self.__disable_em()
                 return
@@ -379,7 +380,7 @@ class WP_EM_Adjustment:
             self.update_em_power(delta_power)
 
         if self.__em_is_inactive():
-            if self.__is_ev_connected():
+            if self.__is_ev_likes_to_charge():
                 logging.info("EV Connected, do nothing")
                 self.sleep_interval = self.em_config.sleep_interval_car
                 return

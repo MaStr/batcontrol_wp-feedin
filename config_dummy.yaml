@@ -16,6 +16,7 @@ mqtt:
     soc: huehnerhaus/evcc/site/battery/1/soc
     grid_power: huehnerhaus/evcc/site/grid/power
     ev_connected: huehnerhaus/evcc/loadpoints/1/connected
+    ev_charge_mode: huehnerhaus/evcc/loadpoints/1/mode
     pv_power: huehnerhaus/evcc/site/pvPower
     home_power: huehnerhaus/evcc/site/homePower
     batcontrol_max_capacity: huehnerhaus/batcontrol/max_energy_capacity
