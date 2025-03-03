@@ -94,6 +94,7 @@ class WP_EM_Adjustment:
         self.batcontrol_status = None
         self.grid_power = 0
         self.ev_connected = "false"
+        self.ev_charge_mode = "off"
         self.pv_power = 0
         self.home_power = 0
         self.batcontrol_max_capacity = 0
