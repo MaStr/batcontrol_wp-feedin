@@ -107,7 +107,7 @@ class WP_EM_Adjustment:
         em_consts = self.config.get('em_constants', {})
         self.em_config = EnergyManagementConstants(**em_consts)
 
-        self.power_feed_in_max = self.em_config.power_feed_in_max * -1
+        self.__set_feedin_max( self.em_config.power_feed_in_max * -1 , "Initial")
 
         # Setze User und Passwort, falls in der Config vorhanden
         mqtt_config = self.config.get('mqtt', {})
@@ -164,6 +164,11 @@ class WP_EM_Adjustment:
                     self.evaluate()
                 if key.startswith("batcontrol_fcst_"):
                     self.received_fcst = True
+
+    def stop(self):
+        self.__disable_em()
+        self.client.loop_stop()
+        self.client.disconnect()
 
     def update_em_mode(self, mode):
         if self.current_em_mode == mode:
@@ -255,8 +260,13 @@ class WP_EM_Adjustment:
                      self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, difference)
 
         if difference < 0:
-            # Vermeide starkes Überschiessen rund um den Grenzwert.
-            self.power_feed_in_max = difference * 1.5
+            if difference > -120:
+                self.__set_feedin_max(120, "Difference = -120 - 0")
+            elif difference > -1000:
+                self.__set_feedin_max(1000, "Difference = -1000 - -120")
+            else:
+                self.__set_feedin_max(self.em_config.power_feed_in_max, "Difference < -1000")
+
             return True
         return False
 
@@ -281,6 +291,13 @@ class WP_EM_Adjustment:
 
     def __is_discharge_blocked_by_batcontrol(self):
         return self.batcontrol_mode == "0"
+
+    def __set_feedin_max(self, power, reason):
+        if power > 0:
+            logging.error("Power Feed-In Max muss negativ sein %.2f" , power)
+            return
+        logging.debug("Set Power Feed-In Max to %.2f (%s)", power, reason)
+        self.power_feed_in_max = power
 
     def evaluate(self):
         if self.__is_em_mode_valid() is False:
@@ -310,7 +327,7 @@ class WP_EM_Adjustment:
             soc_diff = self.soc - (self.em_config.capacity_utilization * 100)
             available_capacity = self.batcontrol_max_capacity * (soc_diff / 100)
              # Vermeide starkes Überschiessen rund um den Grenzwert.
-            self.power_feed_in_max = available_capacity * - 1.5
+            self.__set_feedin_max(available_capacity * - 1.5, "Capacity * -1.5")
 
         if self.z1_refreshed is False:
             logging.error("z1_zaehler is not set. Skip evaluation")
@@ -337,7 +354,7 @@ class WP_EM_Adjustment:
                 return
 
             delta_power = self.grid_power - self.z1_zaehler
-            logging.info(f"Delta Power: {delta_power}")
+            logging.info("Delta Power: %.2f", delta_power)
 
             if delta_power > self.em_config.delta_power_difference_max:
                 self.update_em_power(0)
@@ -350,7 +367,7 @@ class WP_EM_Adjustment:
             else:
                 logging.info("PV Power %s unter Schwellenwert %s",
                              self.pv_power, self.em_config.pv_power_threshold)
-                self.update_em_power(0)
+                self.__disable_em()
                 return
 
             # Delta_power is always negative for feed-in to wp
@@ -373,6 +390,8 @@ class WP_EM_Adjustment:
                 logging.info("Warten bis SOC > %s aktuell: %s",
                              self.em_config.soc_threshold, self.soc)
 
+            if self.pv_power > self.em_config.pv_power_threshold:
+                self.update_em_mode(1)
 
 if __name__ == '__main__':
     # Parse command line arguments
@@ -393,3 +412,10 @@ if __name__ == '__main__':
     except Exception as e:
         logging.error(f"Failed to initialize WP_EM_Adjustment: {e}")
         exit(1)
+
+    try:
+        while True:
+            time.sleep(5)
+    finally:
+        wp_em_adjustment.stop()
+        logging.info("WP_EM_Adjustment stopped")
