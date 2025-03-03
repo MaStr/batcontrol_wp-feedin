@@ -107,6 +107,8 @@ class WP_EM_Adjustment:
         em_consts = self.config.get('em_constants', {})
         self.em_config = EnergyManagementConstants(**em_consts)
 
+        self.power_feed_in_max = self.em_config.power_feed_in_max * -1
+
         # Setze User und Passwort, falls in der Config vorhanden
         mqtt_config = self.config.get('mqtt', {})
         user = mqtt_config.get('user')
@@ -251,7 +253,10 @@ class WP_EM_Adjustment:
         difference = free_capacity -  sum_net_consumption
         logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
                      self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, difference)
+
         if difference < 0:
+            # Vermeide starkes Überschiessen rund um den Grenzwert.
+            self.power_feed_in_max = difference * 1.5
             return True
         return False
 
@@ -301,6 +306,11 @@ class WP_EM_Adjustment:
                 if self.__em_is_active():
                     self.__disable_em()
                 return
+        else:
+            soc_diff = self.soc - (self.em_config.capacity_utilization * 100)
+            available_capacity = self.batcontrol_max_capacity * (soc_diff / 100)
+             # Vermeide starkes Überschiessen rund um den Grenzwert.
+            self.power_feed_in_max = available_capacity * - 1.5
 
         if self.z1_refreshed is False:
             logging.error("z1_zaehler is not set. Skip evaluation")
@@ -343,7 +353,8 @@ class WP_EM_Adjustment:
                 self.update_em_power(0)
                 return
 
-            delta_power = min(delta_power, self.em_config.power_feed_in_max)
+            # Delta_power is always negative for feed-in to wp
+            delta_power = max(delta_power, self.em_config.power_feed_in_max * -1 , self.power_feed_in_max)
 
             # z1_zaehler nur einmal verwenden
             # Update ist unverlässlich
@@ -382,6 +393,3 @@ if __name__ == '__main__':
     except Exception as e:
         logging.error(f"Failed to initialize WP_EM_Adjustment: {e}")
         exit(1)
-
-    while True:
-        time.sleep(1)
