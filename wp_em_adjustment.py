@@ -262,9 +262,9 @@ class WP_EM_Adjustment:
 
         if difference < 0:
             if difference > -120:
-                self.__set_feedin_max(120, "Difference = -120 - 0")
+                self.__set_feedin_max(-120, "Difference = -120 - 0")
             elif difference > -1000:
-                self.__set_feedin_max(1000, "Difference = -1000 - -120")
+                self.__set_feedin_max(-1000, "Difference = -1000 - -120")
             else:
                 self.__set_feedin_max(self.em_config.power_feed_in_max * -1 , "Difference < -1000")
 
