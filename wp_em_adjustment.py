@@ -420,6 +420,11 @@ class WP_EM_Adjustment:
                              self.em_config.pv_power_threshold, self.pv_power)
                 return
 
+            available_pv_power = self.pv_power - self.home_power
+            if available_pv_power < 0:
+                logging.debug("Kein Solarüberschuss, PV < Home")
+                return
+
             self.update_em_mode(1)
 
 if __name__ == '__main__':
