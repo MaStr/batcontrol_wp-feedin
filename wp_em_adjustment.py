@@ -108,7 +108,7 @@ class WP_EM_Adjustment:
         em_consts = self.config.get('em_constants', {})
         self.em_config = EnergyManagementConstants(**em_consts)
 
-        self.__set_feedin_max( self.em_config.power_feed_in_max * -1 , "Initial")
+        self.__set_feedin_max( self.em_config.power_feed_in_max , "Initial")
 
         # Setze User und Passwort, falls in der Config vorhanden
         mqtt_config = self.config.get('mqtt', {})
@@ -142,6 +142,9 @@ class WP_EM_Adjustment:
                 logging.info(f"Subscribed to topic: {topic}")
 
     def on_message(self, client, userdata, msg):
+        if msg.payload == b"":
+            logging.warning(f"Received empty payload for topic {msg.topic}")
+            return
         decoded = msg.payload.decode()
         logging.debug(f"Received message on {msg.topic}: {decoded}")
         # Aktualisiere das passende Attribut
@@ -179,6 +182,14 @@ class WP_EM_Adjustment:
                 f"Dry run: update_em_mode would publish {mode} to {self.topics.get('set_em_mode')}")
         else:
             self.client.publish(self.topics['set_em_mode'], mode)
+
+    def set_feed_in(self, power):
+        """ Set the amount of feed in"""
+        if power < 0:
+            logging.error("Power Feed-In muss positiv sein %.2f", power)
+            return
+        max_power = min ( power, self.power_feed_in_max)
+        self.update_em_power(max_power * -1)
 
     def update_em_power(self, power):
         """
@@ -262,11 +273,11 @@ class WP_EM_Adjustment:
 
         if difference < 0:
             if difference > -120:
-                self.__set_feedin_max(-120, "Difference = -120 - 0")
+                self.__set_feedin_max(120, "Difference = -120 - 0")
             elif difference > -1000:
-                self.__set_feedin_max(-1000, "Difference = -1000 - -120")
+                self.__set_feedin_max(1000, "Difference = -1000 - -120")
             else:
-                self.__set_feedin_max(self.em_config.power_feed_in_max * -1 , "Difference < -1000")
+                self.__set_feedin_max(self.em_config.power_feed_in_max , "Difference < -1000")
 
             return True
         return False
@@ -295,8 +306,8 @@ class WP_EM_Adjustment:
         return self.batcontrol_mode == "0"
 
     def __set_feedin_max(self, power, reason):
-        if power > 0:
-            logging.error("Power Feed-In Max muss negativ sein %.2f" , power)
+        if power < 0:
+            logging.error("Power Feed-In Max muss positiv sein %.2f" , power)
             return
         logging.debug("Set Power Feed-In Max to %.2f (%s)", power, reason)
         self.power_feed_in_max = power
@@ -329,7 +340,7 @@ class WP_EM_Adjustment:
             soc_diff = self.soc - (self.em_config.capacity_utilization * 100)
             available_capacity = self.batcontrol_max_capacity * (soc_diff / 100)
              # Vermeide starkes Überschiessen rund um den Grenzwert.
-            self.__set_feedin_max(available_capacity * - 1.5, "Capacity * -1.5")
+            self.__set_feedin_max(available_capacity * 1.5, "Capacity * 1.5")
 
         if self.z1_refreshed is False:
             logging.error("z1_zaehler is not set. Skip evaluation")
@@ -355,30 +366,43 @@ class WP_EM_Adjustment:
                 self.__disable_em()
                 return
 
-            delta_power = self.grid_power - self.z1_zaehler
-            logging.info("Delta Power: %.2f", delta_power)
 
-            if delta_power > self.em_config.delta_power_difference_max:
+            # Wir wollen die WP-Leistung als positiven Wert benutzen.
+            wp_power =  self.z1_zaehler - self.grid_power
+            logging.info("WP Power: %.2f", wp_power)
+
+            # Wenn wir doch negetavie Leistung beziehen, dann beziehen wir
+            # im Hause gerade schon mehr als 100 W und wollen nix machen.
+            if wp_power < -1 * self.em_config.delta_power_difference_max:
+                logging.info("Netzbezug zu hoch (%.2fW) zu hoch, deaktiviere Regelung", wp_power)
                 self.update_em_power(0)
                 return
 
             if self.pv_power > self.em_config.pv_power_threshold:
                 if self.soc < self.em_config.high_soc_threshold:
-                    delta_power = max(delta_power, -1 *
-                                      (self.pv_power - self.home_power))
+                    available_pv_power = self.pv_power - self.home_power
+                    if available_pv_power < 0:
+                        # Home bedarf mehr als PV liefert
+                        self.update_em_power(0)
+                        logging.info("kein Solarüberschuss, SOC < %d, PV < Home",
+                                        self.em_config.high_soc_threshold)
+                        return
+                    logging.debug("Available PV Power: %.2f", available_pv_power)
+                    wp_power = min(wp_power, available_pv_power)
             else:
                 logging.info("PV Power %s unter Schwellenwert %s",
                              self.pv_power, self.em_config.pv_power_threshold)
                 self.__disable_em()
                 return
 
-            # Delta_power is always negative for feed-in to wp
-            delta_power = max(delta_power, self.em_config.power_feed_in_max * -1 , self.power_feed_in_max)
+            # Delta_power)
+            logging.debug("%s , %s , %s " , wp_power , self.em_config.power_feed_in_max , self.power_feed_in_max)
+            wp_power = min(wp_power, self.em_config.power_feed_in_max, self.power_feed_in_max)
 
             # z1_zaehler nur einmal verwenden
             # Update ist unverlässlich
             self.z1_refreshed = False
-            self.update_em_power(delta_power)
+            self.set_feed_in(wp_power)
 
         if self.__em_is_inactive():
             if self.__is_ev_likes_to_charge():
@@ -386,22 +410,17 @@ class WP_EM_Adjustment:
                 self.sleep_interval = self.em_config.sleep_interval_car
                 return
 
-            new_mode=0
-            if self.soc > self.em_config.soc_threshold:
-                new_mode=1
-            else:
+            if not self.soc > self.em_config.soc_threshold:
                 logging.info("Warten bis SOC > %s aktuell: %s",
                              self.em_config.soc_threshold, self.soc)
+                return
 
-            if self.pv_power > self.em_config.pv_power_threshold:
-                new_mode=1
-            else:
+            if not self.pv_power > self.em_config.pv_power_threshold:
                 logging.info("Warten bis PV Power > %s aktuell: %s",
                              self.em_config.pv_power_threshold, self.pv_power)
-                new_mode=0
+                return
 
-            if new_mode == 1:
-                self.update_em_mode(1)
+            self.update_em_mode(1)
 
 if __name__ == '__main__':
     # Parse command line arguments
