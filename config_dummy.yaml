@@ -23,3 +23,5 @@ mqtt:
     batcontrol_stored_energy: huehnerhaus/batcontrol/stored_energy_capacity
     batcontrol_fcst_solar: huehnerhaus/batcontrol/FCST/production
     batcontrol_fcst_net_consumption: huehnerhaus/batcontrol/FCST/net_consumption
+  send_topics:
+    activate_zp: huehnerhaus/wp-ems/zp_activate

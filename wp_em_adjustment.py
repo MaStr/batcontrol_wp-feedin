@@ -104,6 +104,7 @@ class WP_EM_Adjustment:
         self.received_fcst = False
         self.z1_refreshed = False
 
+
         # Lade die EnergyManagement-Konstanten aus der Config (falls vorhanden)
         em_consts = self.config.get('em_constants', {})
         self.em_config = EnergyManagementConstants(**em_consts)
@@ -126,6 +127,9 @@ class WP_EM_Adjustment:
                 "MQTT host and port must be specified in the configuration")
         self.client.connect(mqtt_host, mqtt_port, 60)
         self.client.loop_start()
+
+        # optional
+        self.send_topics = self.config['mqtt'].get('send_topics', {})
 
         # Mappe alle Topics als Attribute
         self.topics = self.config['mqtt']['topics']
@@ -173,6 +177,17 @@ class WP_EM_Adjustment:
         self.__disable_em()
         self.client.loop_stop()
         self.client.disconnect()
+
+    def enable_zp(self):
+        """ Starte die Zirukulationspumpe um Warmwasser im Haus zu verteilen. """
+        if self.send_topics.get('activate_zp', None) is None:
+            return
+
+        if self.dry_run:
+            logging.info(
+                f"Dry run: enable_zp would publish 1 to {self.send_topics.get('activate_zp')}")
+        else:
+            self.client.publish(self.send_topics['activate_zp'], 1)
 
     def update_em_mode(self, mode):
         if self.current_em_mode == mode:
@@ -366,7 +381,6 @@ class WP_EM_Adjustment:
                 self.__disable_em()
                 return
 
-
             # Wir wollen die WP-Leistung als positiven Wert benutzen.
             wp_power =  self.z1_zaehler - self.grid_power
             logging.info("WP Power: %.2f", wp_power)
@@ -403,6 +417,7 @@ class WP_EM_Adjustment:
             # Update ist unverlässlich
             self.z1_refreshed = False
             self.set_feed_in(wp_power)
+            self.enable_zp()
 
         if self.__em_is_inactive():
             if self.__is_ev_likes_to_charge():
