@@ -25,3 +25,8 @@ mqtt:
     batcontrol_fcst_net_consumption: huehnerhaus/batcontrol/FCST/net_consumption
   send_topics:
     activate_zp: huehnerhaus/wp-ems/zp_activate
+    solar_surplus: huehnerhaus/wp-ems/solar_surplus_wh
+    power_feed_in: huehnerhaus/wp-ems/power_feed_in
+    current_power: huehnerhaus/wp-ems/current_power
+    em_constant_base_topic: huehnerhaus/wp-ems
+    car_ready_to_charge: huehnerhaus/evcc/loadpoints/1/car_ready_to_charge

@@ -78,6 +78,7 @@ class WP_EM_Adjustment:
             "batcontrol_fcst_solar": lambda x: x,
             "batcontrol_fcst_net_consumption": lambda x: x,
         }
+        self.send_topics = None
         self.config = config
         # Dry run Flag: wenn True, werden Publish-Aufrufe nur geloggt
         self.dry_run = self.config.get('dry_run', False)
@@ -145,6 +146,17 @@ class WP_EM_Adjustment:
                 self.client.subscribe(topic)
                 logging.info(f"Subscribed to topic: {topic}")
 
+        if self.send_topics.get('em_constant_base_topic', None) is not None:
+            # Publiziere jeden Eintrag von EnergyManagementConstants aus
+            # self.em _config als einzelnes topic + retained
+            for key, value in self.em_config.__dict__.items():
+                topic = "%s/%s" % (self.send_topics['em_constant_base_topic'], key)
+                if self.dry_run:
+                    logging.info("Dry run: on_connect would publish %s to %s", value, topic)
+                else:
+                    self.client.publish(topic, value, retain=True)
+                logging.info("Published %s to %s", value, topic)
+
     def on_message(self, client, userdata, msg):
         if msg.payload == b"":
             logging.warning(f"Received empty payload for topic {msg.topic}")
@@ -203,8 +215,27 @@ class WP_EM_Adjustment:
         if power < 0:
             logging.error("Power Feed-In muss positiv sein %.2f", power)
             return
+
+        # always send_to current_em_power on mqtt for statistics
+        if self.send_topics.get('current_power', None) is not None:
+            if self.dry_run:
+                logging.info(
+                    f"Dry run: update_em_power would publish {power} to {self.send_topics.get('current_em_power')}")
+            else:
+                self.client.publish(self.send_topics['current_power'], power)
+            logging.debug("Published %s to %s", power, self.send_topics['current_power'])
+
         max_power = min ( power, self.power_feed_in_max)
         self.update_em_power(max_power * -1)
+        # Publish to mqtt power_feed_in
+        #   send_topics is initialied later
+        if self.send_topics.get('power_feed_in', None) is not None:
+            if self.dry_run:
+                logging.info(
+                    f"Dry run: set_feed_in would publish {max_power} to {self.send_topics.get('power_feed_in')}")
+            else:
+                self.client.publish(self.send_topics['power_feed_in'], max_power)
+            logging.debug("Published %s to %s", max_power, self.send_topics['power_feed_in'])
 
     def update_em_power(self, power):
         """
@@ -286,6 +317,16 @@ class WP_EM_Adjustment:
         logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
                      self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, difference)
 
+        # send to mqtt solar_surplus
+        if self.send_topics.get('solar_surplus', None) is not None:
+            surplus = 0 if difference > 0 else difference * -1
+            if self.dry_run:
+                logging.info(
+                    f"Dry run: is_solar_ueberschuss_expected would publish {surplus} to {self.send_topics.get('solar_surplus')}")
+            else:
+                self.client.publish(self.send_topics['solar_surplus'], surplus)
+            logging.debug("Published %s to %s", surplus, self.send_topics['solar_surplus'])
+
         if difference < 0:
             if difference > -120:
                 self.__set_feedin_max(120, "Difference = -120 - 0")
@@ -315,7 +356,16 @@ class WP_EM_Adjustment:
 
     def __is_ev_likes_to_charge(self):
         # off, now, minpv, pv
-        return ( self.ev_connected == "true" and self.ev_charge_mode in ("now", "minpv", "pv"))
+        ready_to_charge = ( self.ev_connected == "true" and self.ev_charge_mode in ("now", "minpv", "pv"))
+        # send to car_ready_to_charge
+        if self.send_topics.get('car_ready_to_charge', None) is not None:
+            if self.dry_run:
+                logging.info(
+                    f"Dry run: __is_ev_likes_to_charge would publish {ready_to_charge} to {self.send_topics.get('car_ready_to_charge')}")
+            else:
+                self.client.publish(self.send_topics['car_ready_to_charge'], ready_to_charge)
+            logging.debug("Published %s to %s", ready_to_charge, self.send_topics['car_ready_to_charge'])
+        return ready_to_charge
 
     def __is_discharge_blocked_by_batcontrol(self):
         return self.batcontrol_mode == "0"
@@ -326,6 +376,15 @@ class WP_EM_Adjustment:
             return
         logging.debug("Set Power Feed-In Max to %.2f (%s)", power, reason)
         self.power_feed_in_max = power
+        # publish to mqtt
+        if self.send_topics is not None and \
+           self.send_topics.get('em_constant_base_topic', None) is not None:
+            topic = "%s/power_feed_in_max" % self.send_topics['em_constant_base_topic']
+            if self.dry_run:
+                logging.info("Dry run: __set_feedin_max would publish %s to %s", power, topic)
+            else:
+                self.client.publish(topic, power, retain=True)
+            logging.debug("Published %s to %s", power, topic)
 
     def evaluate(self):
         if self.__is_em_mode_valid() is False:
