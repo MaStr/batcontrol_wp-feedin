@@ -29,4 +29,4 @@ mqtt:
     power_feed_in: huehnerhaus/wp-ems/power_feed_in
     current_power: huehnerhaus/wp-ems/current_power
     em_constant_base_topic: huehnerhaus/wp-ems
-    car_ready_to_charge: huehnerhaus/evcc/loadpoints/1/car_ready_to_charge
+    car_ready_to_charge: huehnerhaus/wp-ems/car_ready_to_charge
