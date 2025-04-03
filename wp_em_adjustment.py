@@ -246,17 +246,21 @@ class WP_EM_Adjustment:
         """
         power = int(round(power, 0))
         current_power = int(round(self.current_em_power, 0))
-        if abs(power - current_power) <= abs(current_power * self.em_config.power_tolerance_percent):
-            logging.info("Power is already set to ~ %s ; %.3f",
-                         power, float(self.current_em_power))
-            return
-        logging.info("Set EM Power to %s", power)
+        # Wir reizen das maximum komplett aus, ansonsten reichen Näherungswerte
+        if power != self.power_feed_in_max:
+            if abs(power - current_power) <= abs(current_power * self.em_config.power_tolerance_percent):
+                logging.info("Power is already set to ~ %s ; %.3f",
+                            power, float(self.current_em_power))
+                return
+            new_power = int(round(( power + current_power ) / 2, 0))
+
+        logging.info("Set EM Power to %s", new_power)
         if self.dry_run:
             logging.info(
-                f"Dry run: update_em_power would publish {power} to {self.topics.get('set_em_power')}")
+                f"Dry run: update_em_power would publish {new_power} to {self.topics.get('set_em_power')}")
         else:
-            self.client.publish(self.topics['set_em_power'], power)
-        self.last_delta_power = power
+            self.client.publish(self.topics['set_em_power'], new_power)
+        self.last_delta_power = new_power
 
     def is_solar_ueberschuss_expected(self):
         ts = time.time()
@@ -410,11 +414,11 @@ class WP_EM_Adjustment:
                 if self.__em_is_active():
                     self.__disable_em()
                 return
-        else:
-            soc_diff = self.soc - (self.em_config.capacity_utilization * 100)
-            available_capacity = self.batcontrol_max_capacity * (soc_diff / 100)
-             # Vermeide starkes Überschiessen rund um den Grenzwert.
-            self.__set_feedin_max(available_capacity * 1.5, "Capacity * 1.5")
+#        else:
+#            soc_diff = self.soc - (self.em_config.capacity_utilization * 100)
+#            available_capacity = self.batcontrol_max_capacity * (soc_diff / 100)
+#             # Vermeide starkes Überschiessen rund um den Grenzwert.
+#            self.__set_feedin_max(available_capacity * 1.5, "Capacity * 1.5")
 
         if self.z1_refreshed is False:
             logging.error("z1_zaehler is not set. Skip evaluation")
