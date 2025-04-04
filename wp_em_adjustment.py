@@ -37,8 +37,14 @@ class EnergyManagementConstants:
     delta_power_difference_max: int = 100
     # Maximale Leistung zum Einspeisen:
     power_feed_in_max: int = 3500
-
-
+    # EV Sommer-Modus
+    # Wenn dieser schalter an ist, wird die Regelung bei pv und minpv nicht deaktiviert.
+    # Sobald mehr als 300W WP Versorgung anliegen, wird die Leistung der Wallbox reduzert..
+    ev_summer_mode: bool = True
+    # Maximale Leistung der Wallbox
+    #    Wenn die Wallbox mehr als 300W benötigt, wird die WP Leistung reduziert.
+    ev_max_power: int = 16    # Ampere
+    ev_reduced_power: int = 6 # Ampere
 
 def convert_to_hourly_values(data, ts):
     # Umsetzen in ein Array mit hourly values und dann in ein numpy array
@@ -104,6 +110,17 @@ class WP_EM_Adjustment:
         self.batcontrol_fcst_net_consumption = "[]"
         self.received_fcst = False
         self.z1_refreshed = False
+
+        # Batterie Verbrauchs-Wunsch
+        #    False = nur PV Überschuss
+        #    True = Akku und PV
+        self.use_battery = False
+        # Welche verbrauchsphase haben wir? Morgen, PV , Abend
+        #    Morgen = 0
+        #    PV = 1
+        #    Abend = 2
+        self.consumption_phase = 0
+
 
 
         # Lade die EnergyManagement-Konstanten aus der Config (falls vorhanden)
@@ -176,6 +193,19 @@ class WP_EM_Adjustment:
                     if self.batcontrol_status == "offline":
                         if converted == "online":
                             logging.info("Batcontrol online")
+                elif key == "ev_connected":
+                    if self.ev_connected == "true":
+                        if converted == "false":
+                            logging.info("EV disconnected")
+                            self.sleep_interval = 0
+                elif key == "ev_charge_mode":
+                    if self.ev_charge_mode != converted:
+                        logging.info("EV charge mode changed")
+                        if converted != "off":
+                            self.evaluate()
+                        else:
+                            self.sleep_interval = 0
+                            self.evaluate()
                 setattr(self, key, converted)
                 logging.debug(f"Updated attribute '{key}' with value: {converted}")
                 if key == "z1_zaehler":
@@ -247,6 +277,7 @@ class WP_EM_Adjustment:
         power = int(round(power, 0))
         current_power = int(round(self.current_em_power, 0))
         # Wir reizen das maximum komplett aus, ansonsten reichen Näherungswerte
+        new_power=int(round(power, 0))
         if power != self.power_feed_in_max:
             if abs(power - current_power) <= abs(current_power * self.em_config.power_tolerance_percent):
                 logging.info("Power is already set to ~ %s ; %.3f",
@@ -307,19 +338,53 @@ class WP_EM_Adjustment:
         # Da batcontrol aber die Batterie eventuell sperrt, ist das "vorberechnen"
         # wenig sinnvoll.
         #
-        for i in range(production_start_time, production_end_time):
-            sum_net_consumption += net_consumption[i]
-        sum_net_consumption = sum_net_consumption * -1
-        if sum_net_consumption < 0:
-            sum_net_consumption = 0
 
-        logging.debug("Sum Net Production: %s", sum_net_consumption)
+        #for i in range(production_start_time, production_end_time):
+        #    sum_net_consumption += net_consumption[i]
+        #  sum_net_consumption = sum_net_consumption * -1
+        #if sum_net_consumption < 0:
+        #    sum_net_consumption = 0
+
+        # Es gibt drei Szenarien die hier relvant sind:
+        #  1. Wir produzieren *jetzt* gerade mehr als wir bis Ende Produktion
+        #     in den Akku laden und verbrauchen können.
+        #  2. Wir werden gleich anfangen zu produzieren und haben mehr als wir
+        #     bis dahin verbrauchen können.
+        #  3. Wir sind am Ende der Produktion und haben die Nacht vor uns.
+
+        if production_start_time == 0:
+            # Wir produzieren jetzt
+            sum_net_consumption = np.sum(net_consumption[production_start_time:production_end_time])
+            self.consumption_phase = 1
+        elif production_start_time <= 4:
+            # Wir produzieren gleich
+            sum_net_consumption = np.sum(net_consumption[0:production_end_time])
+            self.consumption_phase = 0
+        else:
+            # Wir sind am Ende der Produktion, hier summieren wir den Verbrauch
+            # bis zur Produktion.
+            sum_net_consumption = np.sum(net_consumption[0:production_start_time])
+            self.consumption_phase = 2
+
+        logging.info("Consumption Phase: %s", self.consumption_phase)
+        # Positiv, wenn wir mehr verbrauchen als produzieren.
+        # Negativ, wenn wir mehr produzieren als verbrauchen.
+        logging.debug("Sum Net Consumption: %s", sum_net_consumption)
+        if sum_net_consumption < 0:
+            sum_net_production = sum_net_consumption * -1
+        else:
+            sum_net_production = 0
 
         free_capacity = (self.batcontrol_max_capacity *
                          self.em_config.capacity_utilization) - self.batcontrol_stored_energy
-        difference = free_capacity -  sum_net_consumption
+
+        if free_capacity < 0:
+            free_capacity = 0
+            self.use_battery = True
+
+        difference = free_capacity -  sum_net_production
         logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
-                     self.em_config.capacity_utilization*100, free_capacity, sum_net_consumption, difference)
+                     self.em_config.capacity_utilization*100, free_capacity, sum_net_production, difference)
 
         # send to mqtt solar_surplus
         if self.send_topics.get('solar_surplus', None) is not None:
@@ -332,11 +397,14 @@ class WP_EM_Adjustment:
             logging.debug("Published %s to %s", surplus, self.send_topics['solar_surplus'])
 
         if difference < 0:
-            if difference > -120:
+            if difference > -500:
+                self.use_battery = False
                 self.__set_feedin_max(120, "Difference = -120 - 0")
-            elif difference > -1000:
+            elif difference > -1500:
+                self.use_battery = False
                 self.__set_feedin_max(1000, "Difference = -1000 - -120")
             else:
+                self.use_battery = True
                 self.__set_feedin_max(self.em_config.power_feed_in_max , "Difference < -1000")
 
             return True
@@ -414,6 +482,9 @@ class WP_EM_Adjustment:
                 if self.__em_is_active():
                     self.__disable_em()
                 return
+        else:
+            self.use_battery = True
+            self.__set_feedin_max(self.em_config.power_feed_in_max, "Maximum Battery is used")
 #        else:
 #            soc_diff = self.soc - (self.em_config.capacity_utilization * 100)
 #            available_capacity = self.batcontrol_max_capacity * (soc_diff / 100)
@@ -445,7 +516,7 @@ class WP_EM_Adjustment:
                 return
 
             # Wir wollen die WP-Leistung als positiven Wert benutzen.
-            wp_power =  self.z1_zaehler - self.grid_power
+            wp_power =  int(round(self.z1_zaehler - self.grid_power,0))
             logging.info("WP Power: %.2f", wp_power)
 
             # Wenn wir doch negetavie Leistung beziehen, dann beziehen wir
@@ -455,22 +526,25 @@ class WP_EM_Adjustment:
                 self.update_em_power(0)
                 return
 
-            if self.pv_power > self.em_config.pv_power_threshold:
-                if self.soc < self.em_config.high_soc_threshold:
-                    available_pv_power = self.pv_power - self.home_power
-                    if available_pv_power < 0:
-                        # Home bedarf mehr als PV liefert
-                        self.update_em_power(0)
-                        logging.info("kein Solarüberschuss, SOC < %d, PV < Home",
-                                        self.em_config.high_soc_threshold)
-                        return
-                    logging.debug("Available PV Power: %.2f", available_pv_power)
-                    wp_power = min(wp_power, available_pv_power)
+            if not self.use_battery:
+                if self.pv_power > self.em_config.pv_power_threshold:
+                    if self.soc < self.em_config.high_soc_threshold:
+                        available_pv_power = self.pv_power - self.home_power
+                        if available_pv_power < 0 and not self.use_battery:
+                            # Home bedarf mehr als PV liefert
+                            self.update_em_power(0)
+                            logging.info("kein Solarüberschuss, SOC < %d, PV < Home",
+                                            self.em_config.high_soc_threshold)
+                            return
+                        logging.debug("Available PV Power: %.2f", available_pv_power)
+                        wp_power = min(wp_power, available_pv_power)
+                else:
+                    logging.info("PV Power %s unter Schwellenwert %s; keine Batterie",
+                                self.pv_power, self.em_config.pv_power_threshold)
+                    self.__disable_em()
+                    return
             else:
-                logging.info("PV Power %s unter Schwellenwert %s",
-                             self.pv_power, self.em_config.pv_power_threshold)
-                self.__disable_em()
-                return
+                logging.debug("Batterie wird genutzt, WP Power: %.2f", wp_power)
 
             # Delta_power)
             logging.debug("%s , %s , %s " , wp_power , self.em_config.power_feed_in_max , self.power_feed_in_max)
@@ -488,20 +562,21 @@ class WP_EM_Adjustment:
                 self.sleep_interval = self.em_config.sleep_interval_car
                 return
 
-            if not self.soc > self.em_config.soc_threshold:
-                logging.info("Warten bis SOC > %s aktuell: %s",
-                             self.em_config.soc_threshold, self.soc)
-                return
+            if not self.use_battery:
+                if not self.soc > self.em_config.soc_threshold:
+                    logging.info("Warten bis SOC > %s aktuell: %s",
+                                self.em_config.soc_threshold, self.soc)
+                    return
 
-            if not self.pv_power > self.em_config.pv_power_threshold:
-                logging.info("Warten bis PV Power > %s aktuell: %s",
-                             self.em_config.pv_power_threshold, self.pv_power)
-                return
+                if not self.pv_power > self.em_config.pv_power_threshold:
+                    logging.info("Warten bis PV Power > %s aktuell: %s",
+                                self.em_config.pv_power_threshold, self.pv_power)
+                    return
 
-            available_pv_power = self.pv_power - self.home_power
-            if available_pv_power < 0:
-                logging.debug("Kein Solarüberschuss, PV < Home")
-                return
+                available_pv_power = self.pv_power - self.home_power
+                if available_pv_power < 0:
+                    logging.debug("Kein Solarüberschuss, PV < Home")
+                    return
 
             self.update_em_mode(1)
 
