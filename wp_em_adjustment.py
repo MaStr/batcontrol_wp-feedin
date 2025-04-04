@@ -45,6 +45,8 @@ class EnergyManagementConstants:
     #    Wenn die Wallbox mehr als 300W benötigt, wird die WP Leistung reduziert.
     ev_max_power: int = 16    # Ampere
     ev_reduced_power: int = 6 # Ampere
+    # How much we want to account usable_capacity
+    usable_capacity_usage: float = 0.85
 
 def convert_to_hourly_values(data, ts):
     # Umsetzen in ein Array mit hourly values und dann in ein numpy array
@@ -80,6 +82,7 @@ class WP_EM_Adjustment:
             "home_power": float,
             "batcontrol_max_capacity": float,
             "batcontrol_stored_energy": float,
+            "batcontrol_stored_usable_energy": float,
             # Diese Werte sind JSON-Strings, die später in Funktionen konvertiert werden
             "batcontrol_fcst_solar": lambda x: x,
             "batcontrol_fcst_net_consumption": lambda x: x,
@@ -106,6 +109,7 @@ class WP_EM_Adjustment:
         self.home_power = 0
         self.batcontrol_max_capacity = 0
         self.batcontrol_stored_energy = 0
+        self.batcontrol_stored_usable_energy = 0
         self.batcontrol_fcst_solar = "[]"
         self.batcontrol_fcst_net_consumption = "[]"
         self.received_fcst = False
@@ -280,7 +284,7 @@ class WP_EM_Adjustment:
         new_power=int(round(power, 0))
         if power != self.power_feed_in_max:
             if abs(power - current_power) <= abs(current_power * self.em_config.power_tolerance_percent):
-                logging.info("Power is already set to ~ %s ; %.3f",
+                logging.debug("Power is already set to ~ %s ; %.3f",
                             power, float(self.current_em_power))
                 return
             new_power = int(round(( power + current_power ) / 2, 0))
@@ -382,9 +386,16 @@ class WP_EM_Adjustment:
             free_capacity = 0
             self.use_battery = True
 
-        difference = free_capacity -  sum_net_production
-        logging.info("Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
-                     self.em_config.capacity_utilization*100, free_capacity, sum_net_production, difference)
+        difference = 0
+        if self.consumption_phase != 2:
+            difference = free_capacity -  sum_net_production
+            logging.info("Produktion: Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
+                        self.em_config.capacity_utilization*100, free_capacity, sum_net_production, difference)
+        else:
+            use_energy = self.batcontrol_stored_usable_energy * self.em_config.usable_capacity_usage
+            difference = sum_net_consumption -  use_energy
+            logging.info("Verbrauch: Gespeichert  %.2f , Verbrauch %.2f , = %.2f",
+                      use_energy , sum_net_consumption, difference)
 
         # send to mqtt solar_surplus
         if self.send_topics.get('solar_surplus', None) is not None:
