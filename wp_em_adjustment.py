@@ -349,6 +349,9 @@ class WP_EM_Adjustment:
         #if sum_net_consumption < 0:
         #    sum_net_consumption = 0
 
+        # Todo: darüber nachdenken, ob wir hier die net_consumption
+        #    mit einbeziehen wollen.
+
         # Es gibt drei Szenarien die hier relvant sind:
         #  1. Wir produzieren *jetzt* gerade mehr als wir bis Ende Produktion
         #     in den Akku laden und verbrauchen können.
@@ -356,11 +359,21 @@ class WP_EM_Adjustment:
         #     bis dahin verbrauchen können.
         #  3. Wir sind am Ende der Produktion und haben die Nacht vor uns.
 
-        if production_start_time == 0:
-            # Wir produzieren jetzt
+        if production_start_time == 0 and production_end_time > 3:
+            # Wir produzieren jetzt und noch länger als 3 h
             sum_net_consumption = np.sum(net_consumption[production_start_time:production_end_time])
             self.consumption_phase = 1
-        elif production_start_time <= 4:
+        elif production_start_time == 0 and production_end_time <= 3:
+            # Wir produzieren jetzt und nur noch 3 h
+            # Finden wir den nächsten Zeitpunkt, an dem wir wieder produzieren
+            # und summieren bis dahin.
+            for i in range(production_end_time + 1, len(production)):
+                if production[i] > 0:
+                    production_start_time = i
+                    break
+            sum_net_consumption = np.sum(net_consumption[0:production_start_time])
+            self.consumption_phase = 2
+        elif production_start_time <= 3 and production_start_time > 0:
             # Wir produzieren gleich
             sum_net_consumption = np.sum(net_consumption[0:production_end_time])
             self.consumption_phase = 0
