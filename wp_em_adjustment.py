@@ -573,12 +573,12 @@ class WP_EM_Adjustment:
                 self.sleep_interval = self.em_config.sleep_interval_car
                 return
 
-            if not self.use_battery:
-                if not self.soc > self.em_config.soc_threshold:
-                    logging.info("Warten bis SOC > %s aktuell: %s",
-                                self.em_config.soc_threshold, self.soc)
-                    return
+            if not self.soc > self.em_config.soc_threshold:
+                logging.info("Warten bis SOC > %s aktuell: %s",
+                            self.em_config.soc_threshold, self.soc)
+                return
 
+            if not self.use_battery:
                 if not self.pv_power > self.em_config.pv_power_threshold:
                     logging.info("Warten bis PV Power > %s aktuell: %s",
                                 self.em_config.pv_power_threshold, self.pv_power)
