@@ -83,6 +83,7 @@ class WP_EM_Adjustment:
             "batcontrol_max_capacity": float,
             "batcontrol_stored_energy": float,
             "batcontrol_stored_usable_energy": float,
+            "batcontrol_reserved_energy": float,
             # Diese Werte sind JSON-Strings, die später in Funktionen konvertiert werden
             "batcontrol_fcst_solar": lambda x: x,
             "batcontrol_fcst_net_consumption": lambda x: x,
@@ -110,6 +111,7 @@ class WP_EM_Adjustment:
         self.batcontrol_max_capacity = 0
         self.batcontrol_stored_energy = 0
         self.batcontrol_stored_usable_energy = 0
+        self.batcontrol_reserved_energy = 0
         self.batcontrol_fcst_solar = "[]"
         self.batcontrol_fcst_net_consumption = "[]"
         self.received_fcst = False
@@ -316,6 +318,8 @@ class WP_EM_Adjustment:
         logging.debug("Net Consumption: %s", net_consumption)
         logging.debug("Production: %s", production)
 
+        battery_load_start_time = 0
+        battery_load_end_time = 0
         production_start_time = 0
         production_end_time = None
         for i, entry in enumerate(production):
@@ -330,6 +334,14 @@ class WP_EM_Adjustment:
                 break
         if production_end_time is None:
             production_end_time = len(production)
+
+        battery_load_start_time = len(production)
+        for i in range(production_start_time, len(production)):
+            # Ab wann laden wir signifikant in den Akku?
+            if net_consumption[i] < -100:
+                battery_load_start_time = i
+                break
+
 
         production_end_time = min(production_end_time, len(net_consumption))
         logging.debug("Production Start Time: %s", production_start_time)
@@ -367,11 +379,13 @@ class WP_EM_Adjustment:
             # Wir produzieren jetzt und nur noch 3 h
             # Finden wir den nächsten Zeitpunkt, an dem wir wieder produzieren
             # und summieren bis dahin.
+            battery_load_start_time = len(production)
             for i in range(production_end_time + 1, len(production)):
-                if production[i] > 0:
-                    production_start_time = i
+                # Ab wann laden wir signifikant in den Akku?
+                if net_consumption[i] < -100:
+                    battery_load_start_time = i
                     break
-            sum_net_consumption = np.sum(net_consumption[0:production_start_time])
+            sum_net_consumption = np.sum(net_consumption[0:battery_load_start_time])
             self.consumption_phase = 2
         elif production_start_time <= 3 and production_start_time > 0:
             # Wir produzieren gleich
@@ -380,7 +394,13 @@ class WP_EM_Adjustment:
         else:
             # Wir sind am Ende der Produktion, hier summieren wir den Verbrauch
             # bis zur Produktion.
-            sum_net_consumption = np.sum(net_consumption[0:production_start_time])
+            battery_load_start_time = len(production)
+            for i in range(0, len(production)):
+                # Ab wann laden wir signifikant in den Akku?
+                if net_consumption[i] < -100:
+                    battery_load_start_time = i
+                    break
+            sum_net_consumption = np.sum(net_consumption[0:battery_load_start_time])
             self.consumption_phase = 2
 
         logging.info("Consumption Phase: %s", self.consumption_phase)
@@ -405,8 +425,14 @@ class WP_EM_Adjustment:
             logging.info("Produktion: Freie Speicherkapazität (%.0f%%) %.2f , netto Produktion %.2f , = %.2f",
                         self.em_config.capacity_utilization*100, free_capacity, sum_net_production, difference)
         else:
+            # Batcontrol reserviert ein Teil der Energie für spätere Stunden.
+            # Wenn wir nur die Gesamtsumme berücksichtigen, überschiessen wir den Wert ggf.
+            # und dann wird die Batterie gesperrt.
+            # Wir wollen aber nur den unreservierten Teil der Batterie nutzen.
             use_energy = self.batcontrol_stored_usable_energy * self.em_config.usable_capacity_usage
-            difference = sum_net_consumption -  use_energy
+            unreserved_usable_energy = use_energy - self.batcontrol_reserved_energy
+            difference = sum_net_consumption -  unreserved_usable_energy
+
             logging.info("Verbrauch: Gespeichert  %.2f , Verbrauch %.2f , = %.2f",
                       use_energy , sum_net_consumption, difference)
 
